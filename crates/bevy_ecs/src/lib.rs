@@ -48,7 +48,8 @@ mod tests {
         component::{Component, ComponentId},
         entity::Entity,
         query::{
-            Added, ChangeTrackers, Changed, FilterFetch, FilteredAccess, With, Without, WorldQuery,
+            Added, ChangeTrackers, Changed, FilterFetch, FilteredAccess, Has, With, Without,
+            WorldQuery,
         },
         world::{Mut, World},
     };
@@ -1608,5 +1609,18 @@ mod tests {
             Some(&C),
             "new entity was spawned and received C component"
         );
+    }
+
+    #[test]
+    fn has_query() {
+        let mut world = World::default();
+        let e0 = world.spawn().insert(A(0)).id();
+        let e1 = world.spawn().id();
+
+        let ents = world
+            .query::<(Entity, Has<A>)>()
+            .iter(&world)
+            .collect::<Vec<_>>();
+        assert_eq!(ents, &[(e1, false), (e0, true)]);
     }
 }

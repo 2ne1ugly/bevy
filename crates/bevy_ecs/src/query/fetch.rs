@@ -29,6 +29,7 @@ use std::{
 /// - `&mut C`: Queries mutably for the component `C`
 /// - `Option<WQ>`: Queries the inner WorldQuery `WQ` but instead of discarding the entity if the world
 ///     query fails it returns [`None`]. See [`Query`](crate::system::Query).
+/// - `Has<C>`: Queries for entity's component `C` possession
 /// - `(WQ1, WQ2, ...)`: Queries all contained world queries allowing to query for more than one thing.
 ///     This is the `And` operator for filters. See [`Or`].
 /// - `ChangeTrackers<C>`: See the docs of [`ChangeTrackers`].
@@ -663,6 +664,133 @@ impl<'w, 's, T: Fetch<'w, 's>> Fetch<'w, 's> for OptionFetch<T> {
         } else {
             None
         }
+    }
+}
+
+/// [`WorldQuery`] that returns if entity has component `T`.
+///
+/// # Examples
+///
+/// ```
+/// # use bevy_ecs::component::Component;
+/// # use bevy_ecs::query::Has;
+/// # use bevy_ecs::system::IntoSystem;
+/// # use bevy_ecs::system::Query;
+/// #
+/// # #[derive(Component, Debug)]
+/// # struct Name {};
+/// # #[derive(Component)]
+/// # struct Cash {};
+/// #
+/// fn print_rich_system(query: Query<(&Name, Has<Cash>)>) {
+///     for (name, has_cash) in query.iter() {
+///         if has_cash {
+///             println!("Entity {:?} is rich!", name);
+///         }
+///     }
+/// }
+/// # print_rich_system.system();
+/// ```
+#[derive(Clone)]
+pub struct Has<T: Component>(PhantomData<T>);
+
+impl<T: Component> WorldQuery for Has<T> {
+    type Fetch = HasFetch<T>;
+    type State = HasState<T>;
+}
+
+#[derive(Clone)]
+pub struct HasFetch<T> {
+    has_component: bool,
+    marker: PhantomData<T>,
+}
+
+/// SAFETY: HasFetch does not access components
+unsafe impl<T> ReadOnlyFetch for HasFetch<T> {}
+
+/// The [`FetchState`] of `Has<T>`.
+#[derive(Clone)]
+pub struct HasState<T: Component> {
+    component_id: ComponentId,
+    marker: PhantomData<T>,
+}
+
+// SAFETY: no component access or archetype component access
+unsafe impl<T: Component> FetchState for HasState<T> {
+    fn init(world: &mut World) -> Self {
+        let component_id = world.init_component::<T>();
+        Self {
+            component_id,
+            marker: PhantomData,
+        }
+    }
+
+    fn update_component_access(&self, _access: &mut FilteredAccess<ComponentId>) {}
+
+    fn update_archetype_component_access(
+        &self,
+        _archetype: &Archetype,
+        _access: &mut Access<ArchetypeComponentId>,
+    ) {
+    }
+
+    #[inline]
+    fn matches_archetype(&self, _archetype: &Archetype) -> bool {
+        true
+    }
+
+    #[inline]
+    fn matches_table(&self, _table: &Table) -> bool {
+        true
+    }
+}
+
+impl<'w, 's, T: Component> Fetch<'w, 's> for HasFetch<T> {
+    type Item = bool;
+    type State = HasState<T>;
+
+    unsafe fn init(
+        _world: &World,
+        _state: &Self::State,
+        _last_change_tick: u32,
+        _change_tick: u32,
+    ) -> Self {
+        Self {
+            has_component: false,
+            marker: PhantomData,
+        }
+    }
+
+    const IS_DENSE: bool = {
+        match T::Storage::STORAGE_TYPE {
+            StorageType::Table => true,
+            StorageType::SparseSet => false,
+        }
+    };
+
+    #[inline]
+    unsafe fn set_archetype(
+        &mut self,
+        state: &Self::State,
+        archetype: &Archetype,
+        _tables: &Tables,
+    ) {
+        self.has_component = archetype.contains(state.component_id);
+    }
+
+    #[inline]
+    unsafe fn set_table(&mut self, state: &Self::State, table: &Table) {
+        self.has_component = table.has_column(state.component_id);
+    }
+
+    #[inline]
+    unsafe fn archetype_fetch(&mut self, _archetype_index: usize) -> Self::Item {
+        self.has_component
+    }
+
+    #[inline]
+    unsafe fn table_fetch(&mut self, _table_row: usize) -> Self::Item {
+        self.has_component
     }
 }
 
