@@ -39,7 +39,8 @@ impl<T> Task<T> {
     ///
     /// See `async_executor::Task::cancel`
     pub async fn cancel(self) -> Option<T> {
-        self.0.cancel().await
+        let task = self.0;
+        task.cancel().await
     }
 
     /// Returns `true` if the current task is finished.
